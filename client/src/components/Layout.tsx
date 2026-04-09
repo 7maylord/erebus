@@ -45,6 +45,12 @@ const S = {
     fontFamily: "Inconsolata, monospace",
     letterSpacing: -0.5,
   },
+  logoImage: {
+    width: 32,
+    height: 32,
+    borderRadius: 6,
+    objectFit: "contain" as const,
+  },
   logoText: {
     fontSize: 16,
     fontWeight: 700,
@@ -94,12 +100,14 @@ export function Layout() {
       <header style={S.header}>
         <nav style={S.nav}>
           <Link to="/" style={S.logo}>
-            <div style={S.logoMark}>E</div>
+            <img src="/erebus-logo.png" alt="Erebus Logo" style={S.logoImage} />
             <span style={S.logoText}>Erebus</span>
             <span style={S.badge}>testnet</span>
           </Link>
           {!isPool && (
-            <Link to="/pool" style={S.cta}>Launch Pool →</Link>
+            <Link to="/pool" style={S.cta}>
+              Launch Pool →
+            </Link>
           )}
         </nav>
       </header>
@@ -110,11 +118,32 @@ export function Layout() {
 
       <footer style={S.footer}>
         Built with{" "}
-        <a href="https://www.x402.org/" target="_blank" rel="noopener noreferrer" style={S.footerLink}>x402</a>
+        <a
+          href="https://www.x402.org/"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={S.footerLink}
+        >
+          x402
+        </a>
         {" · "}
-        <a href="https://channels.openzeppelin.com" target="_blank" rel="noopener noreferrer" style={S.footerLink}>OpenZeppelin Relayer</a>
+        <a
+          href="https://channels.openzeppelin.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={S.footerLink}
+        >
+          OpenZeppelin Relayer
+        </a>
         {" · "}
-        <a href="https://stellar.org/" target="_blank" rel="noopener noreferrer" style={S.footerLink}>Stellar</a>
+        <a
+          href="https://stellar.org/"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={S.footerLink}
+        >
+          Stellar
+        </a>
       </footer>
     </div>
   );

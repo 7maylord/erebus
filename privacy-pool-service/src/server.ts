@@ -35,22 +35,30 @@ import { HTTPFacilitatorClient } from "@x402/core/server";
 
 function requireEnv(name: string): string {
   const val = process.env[name];
-  if (!val) { console.error(`Missing required env var: ${name}`); process.exit(1); }
+  if (!val) {
+    console.error(`Missing required env var: ${name}`);
+    process.exit(1);
+  }
   return val;
 }
 
 const PORT = Number(process.env.PORT) || 4021;
 const STELLAR_NETWORK = process.env.STELLAR_NETWORK || "testnet";
-const STELLAR_NETWORK_CAIP2 = `stellar:${STELLAR_NETWORK}` as `${string}:${string}`;
-const STELLAR_RPC_URL = process.env.STELLAR_RPC_URL || "https://soroban-testnet.stellar.org";
-const HORIZON_URL = process.env.STELLAR_HORIZON_URL || "https://horizon-testnet.stellar.org";
+const STELLAR_NETWORK_CAIP2 =
+  `stellar:${STELLAR_NETWORK}` as `${string}:${string}`;
+const STELLAR_RPC_URL =
+  process.env.STELLAR_RPC_URL || "https://soroban-testnet.stellar.org";
+const HORIZON_URL =
+  process.env.STELLAR_HORIZON_URL || "https://horizon-testnet.stellar.org";
 const USDC_CONTRACT = requireEnv("USDC_CONTRACT");
 const FACILITATOR_URL = requireEnv("FACILITATOR_URL");
 const RELAYER_API_KEY = requireEnv("RELAYER_API_KEY");
 const POOL_STELLAR_SECRET = requireEnv("POOL_STELLAR_SECRET");
-const BATCH_INTERVAL_MS = Number(process.env.BATCH_INTERVAL_SECONDS || "30") * 1000;
+const BATCH_INTERVAL_MS =
+  Number(process.env.BATCH_INTERVAL_SECONDS || "30") * 1000;
 
-const NETWORK_PASSPHRASE = STELLAR_NETWORK === "testnet" ? Networks.TESTNET : Networks.PUBLIC;
+const NETWORK_PASSPHRASE =
+  STELLAR_NETWORK === "testnet" ? Networks.TESTNET : Networks.PUBLIC;
 
 // ── Stellar setup ─────────────────────────────────────────────────────────────
 
@@ -73,12 +81,16 @@ function getBalance(address: string): bigint {
 
 function creditBalance(address: string, amountStroops: bigint): void {
   agentBalances.set(address, getBalance(address) + amountStroops);
-  console.log(`[ledger] Credited ${amountStroops} stroops to ${address} — new balance: ${getBalance(address)}`);
+  console.log(
+    `[ledger] Credited ${amountStroops} stroops to ${address} — new balance: ${getBalance(address)}`,
+  );
 }
 
 function deductBalance(address: string, amountStroops: bigint): void {
   agentBalances.set(address, getBalance(address) - amountStroops);
-  console.log(`[ledger] Deducted ${amountStroops} stroops from ${address} — new balance: ${getBalance(address)}`);
+  console.log(
+    `[ledger] Deducted ${amountStroops} stroops from ${address} — new balance: ${getBalance(address)}`,
+  );
 }
 
 // ── x402 facilitator client ───────────────────────────────────────────────────
@@ -100,7 +112,7 @@ const resourceServer = new x402ResourceServer(facilitatorClient).register(
 // ── Payment queue ─────────────────────────────────────────────────────────────
 
 interface PaymentIntent {
-  agentAddress: string;   // who queued this — for balance tracking
+  agentAddress: string; // who queued this — for balance tracking
   payeeAddress: string;
   amountStroops: string;
   nonce: string;
@@ -125,7 +137,9 @@ app.use((req, _res, next) => {
     (_res as any).setHeader = (name: string, value: unknown) => {
       if (name === "PAYMENT-RESPONSE" && typeof value === "string") {
         try {
-          const settlement = JSON.parse(Buffer.from(value, "base64").toString()) as {
+          const settlement = JSON.parse(
+            Buffer.from(value, "base64").toString(),
+          ) as {
             payer?: string;
             transaction?: string;
             network?: string;
@@ -134,9 +148,13 @@ app.use((req, _res, next) => {
             // x402 price is $0.01 USDC = 100000 stroops (7 decimals)
             const x402AmountStroops = 100_000n;
             creditBalance(settlement.payer, x402AmountStroops);
-            console.log(`[x402] Auto-credited ${settlement.payer} from tx ${settlement.transaction}`);
+            console.log(
+              `[x402] Auto-credited ${settlement.payer} from tx ${settlement.transaction}`,
+            );
           }
-        } catch { /* ignore parse errors */ }
+        } catch {
+          /* ignore parse errors */
+        }
       }
       return origSetHeader(name, value as string);
     };
@@ -178,7 +196,8 @@ app.get("/fund-pool", (_req, res) => {
     poolAddress: poolKeypair.publicKey(),
     network: STELLAR_NETWORK_CAIP2,
     usdcContract: USDC_CONTRACT,
-    message: "Send USDC to poolAddress, then call POST /deposit with your address and the tx hash to credit your balance.",
+    message:
+      "Send USDC to poolAddress, then call POST /deposit with your address and the tx hash to credit your balance.",
   });
 });
 
@@ -193,7 +212,10 @@ app.get("/fund-pool", (_req, res) => {
  * Then we credit the agent exactly the amount that arrived.
  */
 app.post("/deposit", async (req: Request, res: Response) => {
-  const { agentAddress, txHash } = req.body as { agentAddress?: string; txHash?: string };
+  const { agentAddress, txHash } = req.body as {
+    agentAddress?: string;
+    txHash?: string;
+  };
 
   if (!agentAddress || !txHash) {
     res.status(400).json({ error: "agentAddress and txHash are required" });
@@ -201,7 +223,9 @@ app.post("/deposit", async (req: Request, res: Response) => {
   }
 
   if (processedDeposits.has(txHash)) {
-    res.status(409).json({ error: "This transaction has already been credited" });
+    res
+      .status(409)
+      .json({ error: "This transaction has already been credited" });
     return;
   }
 
@@ -210,11 +234,13 @@ app.post("/deposit", async (req: Request, res: Response) => {
     const txUrl = `${HORIZON_URL}/transactions/${txHash}`;
     const txResp = await fetch(txUrl);
     if (!txResp.ok) {
-      res.status(404).json({ error: "Transaction not found on Horizon — is it confirmed?" });
+      res
+        .status(404)
+        .json({ error: "Transaction not found on Horizon — is it confirmed?" });
       return;
     }
 
-    const tx = await txResp.json() as { successful: boolean };
+    const tx = (await txResp.json()) as { successful: boolean };
     if (!tx.successful) {
       res.status(400).json({ error: "Transaction is not successful on-chain" });
       return;
@@ -223,15 +249,19 @@ app.post("/deposit", async (req: Request, res: Response) => {
     // Fetch operations for this tx
     const opsUrl = `${HORIZON_URL}/transactions/${txHash}/operations`;
     const opsResp = await fetch(opsUrl);
-    const opsData = await opsResp.json() as { _embedded: { records: Array<{
-      type: string;
-      asset_code?: string;
-      asset_issuer?: string;
-      to?: string;
-      amount?: string;
-      // Soroban invoke_host_function fields
-      function?: string;
-    }> } };
+    const opsData = (await opsResp.json()) as {
+      _embedded: {
+        records: Array<{
+          type: string;
+          asset_code?: string;
+          asset_issuer?: string;
+          to?: string;
+          amount?: string;
+          // Soroban invoke_host_function fields
+          function?: string;
+        }>;
+      };
+    };
 
     const ops = opsData._embedded.records;
 
@@ -325,7 +355,14 @@ app.post("/pay-privately", (req: Request, res: Response) => {
     signature: string;
   };
 
-  if (!agentAddress || !intent?.payeeAddress || !intent?.amountStroops || !intent?.nonce || !intent?.signerPublicKey || !signature) {
+  if (
+    !agentAddress ||
+    !intent?.payeeAddress ||
+    !intent?.amountStroops ||
+    !intent?.nonce ||
+    !intent?.signerPublicKey ||
+    !signature
+  ) {
     res.status(400).json({ error: "Missing required fields" });
     return;
   }
@@ -342,7 +379,11 @@ app.post("/pay-privately", (req: Request, res: Response) => {
   }
 
   const message = new TextEncoder().encode(JSON.stringify(intent));
-  const verified = nacl.sign.detached.verify(message, signatureBytes, publicKeyBytes);
+  const verified = nacl.sign.detached.verify(
+    message,
+    signatureBytes,
+    publicKeyBytes,
+  );
   if (!verified) {
     res.status(401).json({ error: "Invalid signature" });
     return;
@@ -381,7 +422,8 @@ app.post("/pay-privately", (req: Request, res: Response) => {
     nextBatchIn: `${BATCH_INTERVAL_MS / 1000}s`,
     remainingBalanceStroops: getBalance(agentAddress).toString(),
     remainingBalanceUsdc: (Number(getBalance(agentAddress)) / 1e7).toFixed(7),
-    message: "Payment queued. The pool (not your account) will send USDC to the payee.",
+    message:
+      "Payment queued. The pool (not your account) will send USDC to the payee.",
   });
 });
 
@@ -414,7 +456,9 @@ const failedPayments: FailedPayment[] = [];
 
 app.get("/failures/:address", (req: Request, res: Response) => {
   const address = req.params["address"] as string;
-  const agentFailures = failedPayments.filter((f) => f.intent.agentAddress === address);
+  const agentFailures = failedPayments.filter(
+    (f) => f.intent.agentAddress === address,
+  );
   res.json({
     address,
     failures: agentFailures.map((f) => ({
@@ -465,7 +509,8 @@ async function sendPoolPayment(intent: PaymentIntent): Promise<string> {
   for (let i = 0; i < 15; i++) {
     await sleep(2000);
     const status = await rpc.getTransaction(hash);
-    if (status.status === StellarRpc.Api.GetTransactionStatus.SUCCESS) return hash;
+    if (status.status === StellarRpc.Api.GetTransactionStatus.SUCCESS)
+      return hash;
     if (status.status === StellarRpc.Api.GetTransactionStatus.FAILED) {
       throw new Error(`Transaction failed on-chain: ${hash}`);
     }
@@ -497,7 +542,9 @@ async function processBatch(): Promise<void> {
 
         // Refund the agent's balance so they are not out of pocket
         creditBalance(intent.agentAddress, BigInt(intent.amountStroops));
-        console.log(`[batch] ↩ Refunded ${intent.amountStroops} stroops to ${intent.agentAddress}`);
+        console.log(
+          `[batch] ↩ Refunded ${intent.amountStroops} stroops to ${intent.agentAddress}`,
+        );
 
         // Log for agent to inspect via GET /failures/:address
         failedPayments.push({
@@ -512,19 +559,25 @@ async function processBatch(): Promise<void> {
 }
 
 setInterval(() => {
-  processBatch().catch((err) => console.error("[batch] Unexpected error:", err));
+  processBatch().catch((err) =>
+    console.error("[batch] Unexpected error:", err),
+  );
 }, BATCH_INTERVAL_MS);
 
 setInterval(() => {
   if (paymentQueue.length >= 20) {
-    processBatch().catch((err) => console.error("[batch] Emergency flush error:", err));
+    processBatch().catch((err) =>
+      console.error("[batch] Emergency flush error:", err),
+    );
   }
 }, 10_000);
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
-  console.log(`✅ Erebus Privacy Pool running at http://localhost:${PORT} (${STELLAR_NETWORK_CAIP2})`);
+  console.log(
+    `✅ Erebus Privacy Pool running at http://localhost:${PORT} (${STELLAR_NETWORK_CAIP2})`,
+  );
   console.log(`   Pool address   : ${poolKeypair.publicKey()}`);
   console.log(`   USDC contract  : ${USDC_CONTRACT}`);
   console.log(`   Batch interval : ${BATCH_INTERVAL_MS / 1000}s`);
@@ -533,10 +586,16 @@ app.listen(PORT, () => {
   console.log("Endpoints:");
   console.log("  GET  /health              – health check");
   console.log("  GET  /fund-pool           – pool address");
-  console.log("  POST /deposit             – verify on-chain deposit → credit balance");
+  console.log(
+    "  POST /deposit             – verify on-chain deposit → credit balance",
+  );
   console.log("  GET  /balance/:address    – agent's credited balance");
-  console.log("  GET  /protected-data      – x402 paywall ($0.01 → pool, auto-credits payer)");
-  console.log("  POST /pay-privately       – queue payout (deducts from balance)");
+  console.log(
+    "  GET  /protected-data      – x402 paywall ($0.01 → pool, auto-credits payer)",
+  );
+  console.log(
+    "  POST /pay-privately       – queue payout (deducts from balance)",
+  );
   console.log("  GET  /pool-status         – queue depth & stats");
   console.log("  GET  /failures/:address   – failed payouts (all refunded)");
 });

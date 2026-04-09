@@ -18,10 +18,14 @@ export type FreighterSigner = {
   signAuthEntry: (xdrBase64: string) => Promise<string>;
 };
 
-export async function connectFreighter(network: string): Promise<FreighterSigner> {
+export async function connectFreighter(
+  network: string,
+): Promise<FreighterSigner> {
   const connected = await isConnected();
   if (!connected.isConnected) {
-    throw new Error("Freighter extension not found. Install it at freighter.app");
+    throw new Error(
+      "Freighter extension not found. Install it at freighter.app",
+    );
   }
 
   const access = await requestAccess();
@@ -39,7 +43,9 @@ export async function connectFreighter(network: string): Promise<FreighterSigner
   return {
     address,
     signAuthEntry: async (xdrBase64: string) => {
-      const result = await signAuthEntry(xdrBase64, { networkPassphrase: network });
+      const result = await signAuthEntry(xdrBase64, {
+        networkPassphrase: network,
+      });
       if (result.error) {
         throw new Error("Freighter signing failed: " + result.error);
       }
