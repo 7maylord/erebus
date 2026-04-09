@@ -169,8 +169,8 @@ GET /failures/G...
 If you want to run your own OZ Relayer instead of the hosted facilitator:
 
 ```bash
-git clone https://github.com/OpenZeppelin/openzeppelin-relayer
-cd openzeppelin-relayer
+git clone https://github.com/OpenZeppelin/relayer-plugin-x402-facilitator.git
+cd relayer-plugin-x402-facilitator
 cp ../relayer-plugin-x402-facilitator/config/config.json config/config.json
 pnpm start
 # API key printed on startup
