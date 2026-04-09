@@ -22,6 +22,8 @@ module.exports = tseslint.config(
       "pnpm-lock.yaml",
       "package-lock.json",
       ".pnpm-store/**",
+      "client/**",
+      "privacy-pool-service/**",
     ],
   },
 

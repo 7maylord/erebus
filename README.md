@@ -10,10 +10,10 @@ Built for the **Stellar Agents x402 + Stripe MPP Hackathon**.
 
 ## On-chain privacy
 
-| Scenario | Explorer shows | Private? |
-|---|---|---|
-| Standard x402 | Agent → Payee | ✗ |
-| **Erebus** | Agent → Pool · Pool → Payee | ✓ |
+| Scenario      | Explorer shows              | Private? |
+| ------------- | --------------------------- | -------- |
+| Standard x402 | Agent → Payee               | ✗        |
+| **Erebus**    | Agent → Pool · Pool → Payee | ✓        |
 
 ---
 
@@ -89,16 +89,16 @@ PAYER_SECRET=S... node test-pay.mjs
 
 ## API Reference
 
-| Method | Route | Description |
-|---|---|---|
-| `GET` | `/health` | Health check |
-| `GET` | `/fund-pool` | Pool address + funding instructions |
-| `POST` | `/deposit` | Verify on-chain USDC deposit → credit agent balance |
-| `GET` | `/balance/:address` | Agent's current credited balance |
-| `GET` | `/protected-data` | x402 paywall — $0.01 USDC to pool, auto-credits payer |
-| `POST` | `/pay-privately` | Queue signed payout intent (deducts balance) |
-| `GET` | `/pool-status` | Queue depth, batch timing, agent count |
-| `GET` | `/failures/:address` | Failed payouts for an agent (all auto-refunded) |
+| Method | Route                | Description                                           |
+| ------ | -------------------- | ----------------------------------------------------- |
+| `GET`  | `/health`            | Health check                                          |
+| `GET`  | `/fund-pool`         | Pool address + funding instructions                   |
+| `POST` | `/deposit`           | Verify on-chain USDC deposit → credit agent balance   |
+| `GET`  | `/balance/:address`  | Agent's current credited balance                      |
+| `GET`  | `/protected-data`    | x402 paywall — $0.01 USDC to pool, auto-credits payer |
+| `POST` | `/pay-privately`     | Queue signed payout intent (deducts balance)          |
+| `GET`  | `/pool-status`       | Queue depth, batch timing, agent count                |
+| `GET`  | `/failures/:address` | Failed payouts for an agent (all auto-refunded)       |
 
 ### POST `/deposit`
 
@@ -141,26 +141,26 @@ GET /failures/G...
 
 ## Environment Variables
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `FACILITATOR_URL` | Yes | — | OZ facilitator endpoint |
-| `RELAYER_API_KEY` | Yes | — | OZ API key |
-| `POOL_STELLAR_SECRET` | Yes | — | Pool account secret key |
-| `USDC_CONTRACT` | Yes | — | USDC Soroban contract address |
-| `STELLAR_NETWORK` | No | `testnet` | `testnet` or `pubnet` |
-| `STELLAR_RPC_URL` | No | Soroban testnet | Soroban RPC URL |
-| `STELLAR_HORIZON_URL` | No | Horizon testnet | Horizon URL (for deposit verification) |
-| `BATCH_INTERVAL_SECONDS` | No | `30` | Seconds between batch payout runs |
-| `PORT` | No | `4021` | Server port |
+| Variable                 | Required | Default         | Description                            |
+| ------------------------ | -------- | --------------- | -------------------------------------- |
+| `FACILITATOR_URL`        | Yes      | —               | OZ facilitator endpoint                |
+| `RELAYER_API_KEY`        | Yes      | —               | OZ API key                             |
+| `POOL_STELLAR_SECRET`    | Yes      | —               | Pool account secret key                |
+| `USDC_CONTRACT`          | Yes      | —               | USDC Soroban contract address          |
+| `STELLAR_NETWORK`        | No       | `testnet`       | `testnet` or `pubnet`                  |
+| `STELLAR_RPC_URL`        | No       | Soroban testnet | Soroban RPC URL                        |
+| `STELLAR_HORIZON_URL`    | No       | Horizon testnet | Horizon URL (for deposit verification) |
+| `BATCH_INTERVAL_SECONDS` | No       | `30`            | Seconds between batch payout runs      |
+| `PORT`                   | No       | `4021`          | Server port                            |
 
 ---
 
 ## Facilitator Options
 
-| | URL | Key |
-|---|---|---|
+|            | URL                                              | Key                                                                                    |
+| ---------- | ------------------------------------------------ | -------------------------------------------------------------------------------------- |
 | OZ Testnet | `https://channels.openzeppelin.com/x402/testnet` | [channels.openzeppelin.com/testnet/gen](https://channels.openzeppelin.com/testnet/gen) |
-| OZ Mainnet | `https://channels.openzeppelin.com/x402` | [channels.openzeppelin.com/gen](https://channels.openzeppelin.com/gen) |
+| OZ Mainnet | `https://channels.openzeppelin.com/x402`         | [channels.openzeppelin.com/gen](https://channels.openzeppelin.com/gen)                 |
 
 ---
 

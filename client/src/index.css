@@ -1,23 +1,23 @@
 @import url("https://fonts.googleapis.com/css2?family=Inconsolata:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap");
 
 :root {
-  --bg:         #0a0a09;
-  --bg-card:    #0f110f;
-  --bg-raised:  #141914;
-  --border:     #1a2e1a;
+  --bg: #0a0a09;
+  --bg-card: #0f110f;
+  --bg-raised: #141914;
+  --border: #1a2e1a;
   --border-dim: #111a11;
-  --text:       #d8f8d8;
-  --text-dim:   #70a070;
+  --text: #d8f8d8;
+  --text-dim: #70a070;
   --text-muted: #3a553a;
-  --accent:     #00ff41;
-  --accent-dim: rgba(0,255,65,0.12);
-  --accent-border: rgba(0,255,65,0.3);
-  --green:      #22c55e;
-  --green-dim:  rgba(34,197,94,0.1);
-  --red:        #ef4444;
-  --red-dim:    rgba(239,68,68,0.1);
-  --purple:     #818cf8;
-  --purple-dim: rgba(129,140,248,0.1);
+  --accent: #00ff41;
+  --accent-dim: rgba(0, 255, 65, 0.12);
+  --accent-border: rgba(0, 255, 65, 0.3);
+  --green: #22c55e;
+  --green-dim: rgba(34, 197, 94, 0.1);
+  --red: #ef4444;
+  --red-dim: rgba(239, 68, 68, 0.1);
+  --purple: #818cf8;
+  --purple-dim: rgba(129, 140, 248, 0.1);
 
   font-family: "Share Tech Mono", "Inconsolata", monospace;
   color: var(--text);
@@ -25,12 +25,28 @@
   -webkit-font-smoothing: antialiased;
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { min-height: 100vh; }
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+body {
+  min-height: 100vh;
+}
 
-::selection { background: var(--accent-dim); color: var(--accent); }
+::selection {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
 
 /* scrollbar */
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}

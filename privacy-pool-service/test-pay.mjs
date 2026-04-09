@@ -23,7 +23,8 @@ if (!payerSecret) {
 }
 
 const SERVER_URL = process.env.SERVER_URL || "http://localhost:4021";
-const RPC_URL = process.env.STELLAR_RPC_URL || "https://soroban-testnet.stellar.org";
+const RPC_URL =
+  process.env.STELLAR_RPC_URL || "https://soroban-testnet.stellar.org";
 
 const signer = createEd25519Signer(payerSecret);
 const client = new x402Client();
@@ -31,7 +32,9 @@ client.register("stellar:*", new ExactStellarScheme(signer, { url: RPC_URL }));
 
 const payFetch = wrapFetchWithPayment(fetch, client);
 
-console.log(`\nTesting x402 payment flow against ${SERVER_URL}/protected-data\n`);
+console.log(
+  `\nTesting x402 payment flow against ${SERVER_URL}/protected-data\n`,
+);
 
 try {
   const start = Date.now();
@@ -53,7 +56,9 @@ try {
     const settlement = JSON.parse(atob(paymentHeader));
     console.log(`   tx hash : ${settlement.transaction}`);
     console.log(`   network : ${settlement.network}`);
-    console.log(`   explorer: https://stellar.expert/explorer/testnet/tx/${settlement.transaction}`);
+    console.log(
+      `   explorer: https://stellar.expert/explorer/testnet/tx/${settlement.transaction}`,
+    );
   }
 
   console.log("\nProtected content:");
