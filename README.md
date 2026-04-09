@@ -185,7 +185,7 @@ pnpm start
 - [Stellar x402 Docs](https://developers.stellar.org/docs/build/apps/x402)
 - [OpenZeppelin Channels](https://channels.openzeppelin.com)
 - [Circle USDC Testnet Faucet](https://faucet.circle.com)
-- [Stellar Expert Explorer](https://stellar.expert/explorer/testnet)
+- [StellarChain Explorer](https://testnet.stellarchain.io/)
 
 ---
 

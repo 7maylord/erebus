@@ -57,7 +57,7 @@ try {
     console.log(`   tx hash : ${settlement.transaction}`);
     console.log(`   network : ${settlement.network}`);
     console.log(
-      `   explorer: https://stellar.expert/explorer/testnet/tx/${settlement.transaction}`,
+      `   explorer: https://testnet.stellarchain.io/transactions/${settlement.transaction}`,
     );
   }
 

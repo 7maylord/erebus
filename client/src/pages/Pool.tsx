@@ -877,7 +877,7 @@ function FundPool() {
               {" · "}
               Asset:{" "}
               <a
-                href={`https://stellar.expert/explorer/testnet/contract/${poolInfo.usdcContract}`}
+                href={`https://testnet.stellarchain.io/contracts/${poolInfo.usdcContract}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ color: C.accent }}
