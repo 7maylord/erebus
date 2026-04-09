@@ -3,11 +3,11 @@
  * expected by @x402/stellar ExactStellarScheme.
  *
  * Interface required:
- *   { address: string, signAuthEntry: (xdrBase64: string) => Promise<string> }
+ *   { address: string, signAuthEntry: SignAuthEntry } (from @stellar/stellar-sdk/contract)
  */
 
 import {
-  getPublicKey,
+  getAddress,
   signAuthEntry,
   isConnected,
   requestAccess,
@@ -15,7 +15,10 @@ import {
 
 export type FreighterSigner = {
   address: string;
-  signAuthEntry: (xdrBase64: string) => Promise<string>;
+  signAuthEntry: (
+    xdrBase64: string,
+    opts?: { networkPassphrase?: string; address?: string },
+  ) => Promise<{ signedAuthEntry: string; signerAddress?: string }>;
 };
 
 export async function connectFreighter(
@@ -33,12 +36,12 @@ export async function connectFreighter(
     throw new Error("Freighter access denied: " + access.error);
   }
 
-  const pkResult = await getPublicKey();
-  if (pkResult.error) {
-    throw new Error("Could not get Freighter public key: " + pkResult.error);
+  const addrResult = await getAddress();
+  if (addrResult.error) {
+    throw new Error("Could not get Freighter address: " + addrResult.error);
   }
 
-  const address = pkResult.address;
+  const address = addrResult.address;
 
   return {
     address,
@@ -49,7 +52,13 @@ export async function connectFreighter(
       if (result.error) {
         throw new Error("Freighter signing failed: " + result.error);
       }
-      return result.signedAuthEntry;
+      if (!result.signedAuthEntry) {
+        throw new Error("Freighter returned empty signed auth entry");
+      }
+      return {
+        signedAuthEntry: result.signedAuthEntry,
+        signerAddress: result.signerAddress,
+      };
     },
   };
 }
