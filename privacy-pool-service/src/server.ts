@@ -26,6 +26,7 @@ import {
   BASE_FEE,
   nativeToScVal,
   rpc as StellarRpc,
+  Horizon,
 } from "@stellar/stellar-sdk";
 import { paymentMiddleware, x402ResourceServer } from "@x402/express";
 import { ExactStellarScheme } from "@x402/stellar/exact/server";
@@ -50,6 +51,7 @@ const STELLAR_RPC_URL =
   process.env.STELLAR_RPC_URL || "https://soroban-testnet.stellar.org";
 const HORIZON_URL =
   process.env.STELLAR_HORIZON_URL || "https://horizon-testnet.stellar.org";
+const horizonServer = new Horizon.Server(HORIZON_URL);
 const USDC_CONTRACT = requireEnv("USDC_CONTRACT");
 const FACILITATOR_URL = requireEnv("FACILITATOR_URL");
 const RELAYER_API_KEY = requireEnv("RELAYER_API_KEY");
@@ -606,103 +608,65 @@ setInterval(() => {
 
 // ── Horizon payment stream — auto-credit incoming USDC deposits ───────────────
 //
-// Streams real-time payments to the pool address via Horizon SSE.
-// When a USDC payment arrives, the sender is credited (minus 0.5% fee)
-// without needing to call POST /deposit manually.
+// Uses the Stellar SDK's built-in streaming to watch for incoming USDC payments.
+// When a USDC payment arrives, the sender is auto-credited (minus 0.5% fee).
 
-async function startDepositWatcher() {
-  const url = `${HORIZON_URL}/accounts/${poolKeypair.publicKey()}/payments?order=desc&limit=1&cursor=now`;
+function startDepositWatcher() {
+  function watch() {
+    const closeStream = horizonServer
+      .payments()
+      .forAccount(poolKeypair.publicKey())
+      .cursor("now")
+      .stream({
+        onmessage: (payment) => {
+          const op = payment as unknown as {
+            type: string;
+            asset_code?: string;
+            asset_issuer?: string;
+            from?: string;
+            to?: string;
+            amount?: string;
+            transaction_hash?: string;
+          };
 
-  async function stream(cursor: string) {
-    const streamUrl = `${HORIZON_URL}/accounts/${poolKeypair.publicKey()}/payments?order=asc&cursor=${cursor}`;
-    try {
-      const resp = await fetch(streamUrl, {
-        headers: { Accept: "text/event-stream" },
-      });
-      if (!resp.ok || !resp.body) {
-        setTimeout(() => stream(cursor), 5000);
-        return;
-      }
-
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const raw = line.slice(6).trim();
-          if (!raw || raw === "\"hello\"") continue;
-          try {
-            const op = JSON.parse(raw) as {
-              type: string;
-              paging_token: string;
-              asset_code?: string;
-              from?: string;
-              to?: string;
-              amount?: string;
-              transaction_hash?: string;
-            };
-
-            cursor = op.paging_token;
-
-            if (
-              op.type === "payment" &&
-              op.asset_code === "USDC" &&
-              op.to === poolKeypair.publicKey() &&
-              op.from &&
-              op.amount &&
-              op.transaction_hash &&
-              !processedDeposits.has(op.transaction_hash)
-            ) {
-              const depositedStroops = BigInt(
-                Math.round(parseFloat(op.amount) * 1e7),
-              );
-              const feeStroops = (depositedStroops * 50n) / 10_000n;
-              const netStroops = depositedStroops - feeStroops;
-
-              processedDeposits.add(op.transaction_hash);
-              creditBalance(op.from, netStroops);
-
-              console.log(
-                `[watcher] ✅ Auto-credited ${op.from} — deposited ${op.amount} USDC — fee ${(Number(feeStroops) / 1e7).toFixed(7)} USDC — net ${(Number(netStroops) / 1e7).toFixed(7)} USDC | tx: ${op.transaction_hash}`,
-              );
-            }
-          } catch {
-            // ignore malformed SSE data
+          if (
+            op.type !== "payment" ||
+            op.asset_code !== "USDC" ||
+            op.to !== poolKeypair.publicKey() ||
+            !op.from ||
+            !op.amount ||
+            !op.transaction_hash ||
+            processedDeposits.has(op.transaction_hash)
+          ) {
+            return;
           }
-        }
-      }
-    } catch {
-      // reconnect on error
-    }
-    setTimeout(() => stream(cursor), 5000);
+
+          const depositedStroops = BigInt(
+            Math.round(parseFloat(op.amount) * 1e7),
+          );
+          const feeStroops = (depositedStroops * 50n) / 10_000n;
+          const netStroops = depositedStroops - feeStroops;
+
+          processedDeposits.add(op.transaction_hash);
+          creditBalance(op.from, netStroops);
+
+          console.log(
+            `[watcher] ✅ Auto-credited ${op.from} — deposited ${op.amount} USDC — fee ${(Number(feeStroops) / 1e7).toFixed(7)} USDC — net ${(Number(netStroops) / 1e7).toFixed(7)} USDC | tx: ${op.transaction_hash}`,
+          );
+        },
+        onerror: (err) => {
+          console.error("[watcher] Stream error, reconnecting in 5s…", err);
+          closeStream();
+          setTimeout(watch, 5000);
+        },
+      });
+
+    console.log(
+      `[watcher] Watching pool ${poolKeypair.publicKey()} for incoming USDC…`,
+    );
   }
 
-  // get the latest paging token so we only process new deposits going forward
-  try {
-    const resp = await fetch(url);
-    if (resp.ok) {
-      const data = (await resp.json()) as {
-        _embedded: { records: Array<{ paging_token: string }> };
-      };
-      const records = data._embedded?.records;
-      const cursor =
-        records && records.length > 0 ? records[0].paging_token : "now";
-      console.log(`[watcher] Watching pool for incoming USDC (cursor: ${cursor})`);
-      stream(cursor);
-    } else {
-      stream("now");
-    }
-  } catch {
-    stream("now");
-  }
+  watch();
 }
 
 // ── Start ─────────────────────────────────────────────────────────────────────
@@ -710,9 +674,7 @@ async function startDepositWatcher() {
 startDepositWatcher();
 
 app.listen(PORT, () => {
-  console.log(
-    `✅ Erebus Privacy Pool running at http://localhost:${PORT} (${STELLAR_NETWORK_CAIP2})`,
-  );
+  console.log(`✅ Erebus Privacy Pool running`);
   console.log(`   Pool address   : ${poolKeypair.publicKey()}`);
   console.log(`   USDC contract  : ${USDC_CONTRACT}`);
   console.log(`   Batch interval : ${BATCH_INTERVAL_MS / 1000}s`);
