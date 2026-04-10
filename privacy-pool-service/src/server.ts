@@ -308,15 +308,28 @@ app.post("/deposit", async (req: Request, res: Response) => {
       return;
     }
 
+    // 0.5% deposit fee — pool keeps it, agent credited 99.5%
+    const FEE_BPS = 50n; // 50 basis points = 0.5%
+    const feeStroops = (creditedStroops * FEE_BPS) / 10_000n;
+    const netStroops = creditedStroops - feeStroops;
+
     // Mark deposit as processed and credit balance
     processedDeposits.add(txHash);
-    creditBalance(agentAddress, creditedStroops);
+    creditBalance(agentAddress, netStroops);
+
+    console.log(
+      `[deposit] ${agentAddress} deposited ${creditedStroops} stroops — fee ${feeStroops} stroops (0.5%) — credited ${netStroops} stroops`,
+    );
 
     res.json({
       status: "credited",
       agentAddress,
-      creditedStroops: creditedStroops.toString(),
-      creditedUsdc: (Number(creditedStroops) / 1e7).toFixed(7),
+      depositedStroops: creditedStroops.toString(),
+      depositedUsdc: (Number(creditedStroops) / 1e7).toFixed(7),
+      feeStroops: feeStroops.toString(),
+      feeUsdc: (Number(feeStroops) / 1e7).toFixed(7),
+      creditedStroops: netStroops.toString(),
+      creditedUsdc: (Number(netStroops) / 1e7).toFixed(7),
       newBalanceStroops: getBalance(agentAddress).toString(),
       newBalanceUsdc: (Number(getBalance(agentAddress)) / 1e7).toFixed(7),
     });
@@ -591,7 +604,110 @@ setInterval(() => {
   }
 }, 10_000);
 
+// ── Horizon payment stream — auto-credit incoming USDC deposits ───────────────
+//
+// Streams real-time payments to the pool address via Horizon SSE.
+// When a USDC payment arrives, the sender is credited (minus 0.5% fee)
+// without needing to call POST /deposit manually.
+
+async function startDepositWatcher() {
+  const url = `${HORIZON_URL}/accounts/${poolKeypair.publicKey()}/payments?order=desc&limit=1&cursor=now`;
+
+  async function stream(cursor: string) {
+    const streamUrl = `${HORIZON_URL}/accounts/${poolKeypair.publicKey()}/payments?order=asc&cursor=${cursor}`;
+    try {
+      const resp = await fetch(streamUrl, {
+        headers: { Accept: "text/event-stream" },
+      });
+      if (!resp.ok || !resp.body) {
+        setTimeout(() => stream(cursor), 5000);
+        return;
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const raw = line.slice(6).trim();
+          if (!raw || raw === "\"hello\"") continue;
+          try {
+            const op = JSON.parse(raw) as {
+              type: string;
+              paging_token: string;
+              asset_code?: string;
+              from?: string;
+              to?: string;
+              amount?: string;
+              transaction_hash?: string;
+            };
+
+            cursor = op.paging_token;
+
+            if (
+              op.type === "payment" &&
+              op.asset_code === "USDC" &&
+              op.to === poolKeypair.publicKey() &&
+              op.from &&
+              op.amount &&
+              op.transaction_hash &&
+              !processedDeposits.has(op.transaction_hash)
+            ) {
+              const depositedStroops = BigInt(
+                Math.round(parseFloat(op.amount) * 1e7),
+              );
+              const feeStroops = (depositedStroops * 50n) / 10_000n;
+              const netStroops = depositedStroops - feeStroops;
+
+              processedDeposits.add(op.transaction_hash);
+              creditBalance(op.from, netStroops);
+
+              console.log(
+                `[watcher] ✅ Auto-credited ${op.from} — deposited ${op.amount} USDC — fee ${(Number(feeStroops) / 1e7).toFixed(7)} USDC — net ${(Number(netStroops) / 1e7).toFixed(7)} USDC | tx: ${op.transaction_hash}`,
+              );
+            }
+          } catch {
+            // ignore malformed SSE data
+          }
+        }
+      }
+    } catch {
+      // reconnect on error
+    }
+    setTimeout(() => stream(cursor), 5000);
+  }
+
+  // get the latest paging token so we only process new deposits going forward
+  try {
+    const resp = await fetch(url);
+    if (resp.ok) {
+      const data = (await resp.json()) as {
+        _embedded: { records: Array<{ paging_token: string }> };
+      };
+      const records = data._embedded?.records;
+      const cursor =
+        records && records.length > 0 ? records[0].paging_token : "now";
+      console.log(`[watcher] Watching pool for incoming USDC (cursor: ${cursor})`);
+      stream(cursor);
+    } else {
+      stream("now");
+    }
+  } catch {
+    stream("now");
+  }
+}
+
 // ── Start ─────────────────────────────────────────────────────────────────────
+
+startDepositWatcher();
 
 app.listen(PORT, () => {
   console.log(
