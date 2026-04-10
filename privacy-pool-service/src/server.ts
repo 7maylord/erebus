@@ -125,7 +125,18 @@ const paymentQueue: PaymentIntent[] = [];
 // ── Express app ───────────────────────────────────────────────────────────────
 
 const app = express();
-app.use(cors());
+app.use(
+  cors({
+    exposedHeaders: [
+      "PAYMENT-REQUIRED",
+      "PAYMENT-RESPONSE",
+      "X-PAYMENT-REQUIREMENTS",
+      "X-PAYMENT-RESPONSE",
+      "X-PAYMENT",
+    ],
+  }),
+);
+
 app.use(bodyParser.json());
 
 // x402 paywall — after successful settlement, intercept the PAYMENT-RESPONSE
@@ -183,6 +194,14 @@ app.use(
 );
 
 // ── Routes ────────────────────────────────────────────────────────────────────
+
+app.get("/", (_req, res) => {
+  res.json({
+    status: "ok",
+    network: STELLAR_NETWORK_CAIP2,
+    poolAddress: poolKeypair.publicKey(),
+  });
+});
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", network: STELLAR_NETWORK_CAIP2 });
