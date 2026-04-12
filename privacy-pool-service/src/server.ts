@@ -1,17 +1,3 @@
-/**
- * Privacy Pool Service — Erebus
- *
- * Agents pre-fund a shared pool account. The operator pays services FROM the
- * pool, so on-chain there is no direct link between individual payers and
- * payees. Multiple outgoing payments are batched for efficiency.
- *
- * Balance accounting:
- *   - POST /deposit  → agent proves a USDC deposit tx → credited to their balance
- *   - x402 payments  → payer auto-credited from settlement header
- *   - POST /pay-privately → balance checked & deducted before queuing
- *   - GET  /balance/:address → current credited balance
- */
-
 import "dotenv/config";
 
 import mongoose, { Schema, model } from "mongoose";
@@ -32,8 +18,6 @@ import {
 import { paymentMiddleware, x402ResourceServer } from "@x402/express";
 import { ExactStellarScheme } from "@x402/stellar/exact/server";
 import { HTTPFacilitatorClient } from "@x402/core/server";
-
-// ── Environment ───────────────────────────────────────────────────────────────
 
 function requireEnv(name: string): string {
   const val = process.env[name];
@@ -63,14 +47,9 @@ const BATCH_INTERVAL_MS =
 const NETWORK_PASSPHRASE =
   STELLAR_NETWORK === "testnet" ? Networks.TESTNET : Networks.PUBLIC;
 
-// ── Stellar setup ─────────────────────────────────────────────────────────────
-
 const poolKeypair = Keypair.fromSecret(POOL_STELLAR_SECRET);
 const rpc = new StellarRpc.Server(STELLAR_RPC_URL);
 const usdcContract = new Contract(USDC_CONTRACT);
-
-// ── MongoDB ledger ────────────────────────────────────────────────────────────
-// Balances and processed deposits persisted in MongoDB so restarts are safe.
 
 const BalanceDoc = model(
   "Balance",
@@ -81,7 +60,6 @@ const DepositDoc = model(
   new Schema({ txHash: { type: String, required: true, unique: true } }),
 );
 
-// In-memory mirrors — kept in sync with DB, used for fast synchronous reads
 const agentBalances = new Map<string, bigint>();
 const processedDeposits = new Set<string>();
 
@@ -92,7 +70,7 @@ async function connectDB() {
     process.exit(1);
   }
   await mongoose.connect(uri, { dbName: "erebus" });
-  // Load existing data into memory
+
   const balances = await BalanceDoc.find();
   for (const b of balances) agentBalances.set(b.address, BigInt(b.stroops));
   const deposits = await DepositDoc.find();
@@ -141,8 +119,6 @@ function markDepositProcessed(txHash: string): void {
   ).catch((e) => console.error("[ledger] markDeposit DB error:", e));
 }
 
-// ── x402 facilitator client ───────────────────────────────────────────────────
-
 const facilitatorClient = new HTTPFacilitatorClient({
   url: FACILITATOR_URL,
   createAuthHeaders: async () => ({
@@ -157,8 +133,6 @@ const resourceServer = new x402ResourceServer(facilitatorClient).register(
   new ExactStellarScheme(),
 );
 
-// ── Payment queue ─────────────────────────────────────────────────────────────
-
 interface PaymentIntent {
   agentAddress: string; // who queued this — for balance tracking
   payeeAddress: string;
@@ -169,8 +143,6 @@ interface PaymentIntent {
 }
 
 const paymentQueue: PaymentIntent[] = [];
-
-// ── Express app ───────────────────────────────────────────────────────────────
 
 const app = express();
 app.use(
@@ -187,12 +159,10 @@ app.use(
 
 app.use(bodyParser.json());
 
-// x402 paywall — after successful settlement, intercept the PAYMENT-RESPONSE
-// header to extract the payer address and auto-credit their pool balance.
 app.use((req, _res, next) => {
   if (req.path === "/protected-data" && req.method === "GET") {
     const origSetHeader = _res.setHeader.bind(_res);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     (_res as any).setHeader = (name: string, value: unknown) => {
       if (name === "PAYMENT-RESPONSE" && typeof value === "string") {
         try {
@@ -204,7 +174,7 @@ app.use((req, _res, next) => {
             network?: string;
           };
           if (settlement.payer) {
-            // x402 price is $0.01 USDC = 100000 stroops (7 decimals)
+
             const x402AmountStroops = 100_000n;
             creditBalance(settlement.payer, x402AmountStroops);
             console.log(
@@ -212,7 +182,7 @@ app.use((req, _res, next) => {
             );
           }
         } catch {
-          /* ignore parse errors */
+          
         }
       }
       return origSetHeader(name, value as string);
@@ -241,8 +211,6 @@ app.use(
   ),
 );
 
-// ── Routes ────────────────────────────────────────────────────────────────────
-
 app.get("/", (_req, res) => {
   res.json({
     status: "ok",
@@ -255,9 +223,6 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", network: STELLAR_NETWORK_CAIP2 });
 });
 
-/**
- * Pool info — returns pool address for agents to deposit into.
- */
 app.get("/fund-pool", (_req, res) => {
   res.json({
     poolAddress: poolKeypair.publicKey(),
@@ -268,16 +233,6 @@ app.get("/fund-pool", (_req, res) => {
   });
 });
 
-/**
- * Verify a USDC deposit on-chain and credit the agent's balance.
- *
- * Body: { agentAddress: string, txHash: string }
- *
- * We look up the tx on Horizon, confirm:
- *   - destination operation is a USDC transfer to the pool
- *   - tx is confirmed (not pending)
- * Then we credit the agent exactly the amount that arrived.
- */
 app.post("/deposit", async (req: Request, res: Response) => {
   const { agentAddress, txHash } = req.body as {
     agentAddress?: string;
@@ -297,7 +252,7 @@ app.post("/deposit", async (req: Request, res: Response) => {
   }
 
   try {
-    // Fetch the transaction from Horizon
+
     const txUrl = `${HORIZON_URL}/transactions/${txHash}`;
     const txResp = await fetch(txUrl);
     if (!txResp.ok) {
@@ -313,7 +268,6 @@ app.post("/deposit", async (req: Request, res: Response) => {
       return;
     }
 
-    // Fetch operations for this tx
     const opsUrl = `${HORIZON_URL}/transactions/${txHash}/operations`;
     const opsResp = await fetch(opsUrl);
     const opsData = (await opsResp.json()) as {
@@ -324,7 +278,7 @@ app.post("/deposit", async (req: Request, res: Response) => {
           asset_issuer?: string;
           to?: string;
           amount?: string;
-          // Soroban invoke_host_function fields
+
           function?: string;
         }>;
       };
@@ -332,18 +286,17 @@ app.post("/deposit", async (req: Request, res: Response) => {
 
     const ops = opsData._embedded.records;
 
-    // Look for a USDC payment or Soroban transfer to the pool
     let creditedStroops = 0n;
 
     for (const op of ops) {
-      // Classic payment op
+
       if (
         op.type === "payment" &&
         op.asset_code === "USDC" &&
         op.to === poolKeypair.publicKey() &&
         op.amount
       ) {
-        // Horizon returns amount in XLM-style decimals (e.g. "1.0000000")
+
         creditedStroops += BigInt(Math.round(parseFloat(op.amount) * 1e7));
       }
     }
@@ -356,12 +309,10 @@ app.post("/deposit", async (req: Request, res: Response) => {
       return;
     }
 
-    // 0.5% deposit fee — pool keeps it, agent credited 99.5%
     const FEE_BPS = 50n; // 50 basis points = 0.5%
     const feeStroops = (creditedStroops * FEE_BPS) / 10_000n;
     const netStroops = creditedStroops - feeStroops;
 
-    // Mark deposit as processed and credit balance
     markDepositProcessed(txHash);
     creditBalance(agentAddress, netStroops);
 
@@ -387,9 +338,6 @@ app.post("/deposit", async (req: Request, res: Response) => {
   }
 });
 
-/**
- * Get an agent's current credited pool balance.
- */
 app.get("/balance/:address", (req: Request, res: Response) => {
   const address = req.params["address"] as string;
   const balanceStroops = getBalance(address);
@@ -400,10 +348,6 @@ app.get("/balance/:address", (req: Request, res: Response) => {
   });
 });
 
-/**
- * Protected route — x402 paywall, $0.01 USDC to pool.
- * Payer is auto-credited in the middleware above.
- */
 app.get("/protected-data", (_req, res) => {
   res.json({
     message: "Content delivered via privacy-preserving x402 pool payment.",
@@ -416,18 +360,6 @@ app.get("/protected-data", (_req, res) => {
   });
 });
 
-/**
- * Queue a private payment intent.
- *
- * Body:
- *   agentAddress: string          — Stellar address of the agent (for balance deduction)
- *   intent: { payeeAddress, amountStroops, nonce, signerPublicKey }
- *   signature: base64 ed25519 sig of JSON.stringify(intent)
- *
- * Balance check:
- *   agentBalance >= amountStroops → deduct immediately → queue
- *   agentBalance < amountStroops  → 402 insufficient balance
- */
 app.post("/pay-privately", (req: Request, res: Response) => {
   const { agentAddress, intent, signature } = req.body as {
     agentAddress: string;
@@ -447,7 +379,6 @@ app.post("/pay-privately", (req: Request, res: Response) => {
     return;
   }
 
-  // Verify ed25519 signature
   let publicKeyBytes: Uint8Array;
   let signatureBytes: Uint8Array;
   try {
@@ -469,13 +400,11 @@ app.post("/pay-privately", (req: Request, res: Response) => {
     return;
   }
 
-  // Deduplicate
   if (paymentQueue.some((p) => p.nonce === intent.nonce)) {
     res.status(409).json({ error: "Duplicate nonce" });
     return;
   }
 
-  // Balance check — agent must have enough credited balance
   const amountStroops = BigInt(intent.amountStroops);
   const balance = getBalance(agentAddress);
 
@@ -491,7 +420,6 @@ app.post("/pay-privately", (req: Request, res: Response) => {
     return;
   }
 
-  // Deduct balance atomically before queuing
   deductBalance(agentAddress, amountStroops);
 
   paymentQueue.push({ agentAddress, ...intent, queuedAt: Date.now() });
@@ -507,9 +435,6 @@ app.post("/pay-privately", (req: Request, res: Response) => {
   });
 });
 
-/**
- * Pool status.
- */
 app.get("/pool-status", (_req, res) => {
   res.json({
     poolAddress: poolKeypair.publicKey(),
@@ -520,10 +445,6 @@ app.get("/pool-status", (_req, res) => {
     totalFailedPayments: failedPayments.length,
   });
 });
-
-// ── Failed payment log ────────────────────────────────────────────────────────
-// Agents can query GET /failures/:address to see what went wrong and verify
-// their balance was refunded.
 
 interface FailedPayment {
   intent: PaymentIntent;
@@ -551,8 +472,6 @@ app.get("/failures/:address", (req: Request, res: Response) => {
     })),
   });
 });
-
-// ── Batch processor ───────────────────────────────────────────────────────────
 
 async function sendPoolPayment(intent: PaymentIntent): Promise<string> {
   const account = await rpc.getAccount(poolKeypair.publicKey());
@@ -595,7 +514,7 @@ async function sendPoolPayment(intent: PaymentIntent): Promise<string> {
       throw new Error(`Transaction failed on-chain: ${hash}`);
     }
   }
-  // Timed out polling — tx may still confirm, treat as unknown
+
   throw new Error(`Polling timed out for tx: ${hash} — status unknown`);
 }
 
@@ -619,13 +538,11 @@ async function processBatch(): Promise<void> {
       const reason = err instanceof Error ? err.message : String(err);
       console.error(`[batch] ❌ Failed: ${intent.payeeAddress} — ${reason}`);
 
-      // Refund the agent's balance so they are not out of pocket
       creditBalance(intent.agentAddress, BigInt(intent.amountStroops));
       console.log(
         `[batch] ↩ Refunded ${intent.amountStroops} stroops to ${intent.agentAddress}`,
       );
 
-      // Log for agent to inspect via GET /failures/:address
       failedPayments.push({
         intent,
         reason,
@@ -649,11 +566,6 @@ setInterval(() => {
     );
   }
 }, 10_000);
-
-// ── Horizon payment stream — auto-credit incoming USDC deposits ───────────────
-//
-// Uses the Stellar SDK's built-in streaming to watch for incoming USDC payments.
-// When a USDC payment arrives, the sender is auto-credited (minus 0.5% fee).
 
 function startDepositWatcher() {
   function watch() {
@@ -712,8 +624,6 @@ function startDepositWatcher() {
 
   watch();
 }
-
-// ── Start ─────────────────────────────────────────────────────────────────────
 
 connectDB().then(() => {
   startDepositWatcher();

@@ -237,10 +237,16 @@ separator("Step 6 / 6 — Waiting for Batch Settlement");
 console.log(dim("  Polling until queue clears…\n"));
 
 let settled = false;
-for (let attempt = 0; attempt < 20; attempt++) {
+for (let attempt = 0; attempt < 30; attempt++) {
   await sleep(5000);
-  const s = await apiGet("/pool-status");
-  process.stdout.write(`  [${attempt + 1}/20] queue depth: ${s.queueDepth} … `);
+  let s;
+  try {
+    s = await apiGet("/pool-status");
+  } catch {
+    process.stdout.write(`  [${attempt + 1}/30] server busy, retrying… \n`);
+    continue;
+  }
+  process.stdout.write(`  [${attempt + 1}/30] queue depth: ${s.queueDepth} … `);
   if (s.queueDepth === 0) {
     console.log(green("batch settled ✅"));
     settled = true;
@@ -268,7 +274,7 @@ if (settlements.length > 0) {
 console.log(bold(`\n  Private Payouts Queued : ${queued.length}`));
 console.log(
   bold(
-    `  Batch Settled          : ${settled ? green("Yes") : amber("Pending — check /pool-status")}`,
+    `  Batch Settled          : ${settled ? green("Yes") : amber("Still processing — check /pool-status or wait 30s more")}`,
   ),
 );
 

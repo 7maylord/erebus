@@ -12,7 +12,6 @@ import {
 const STELLAR_NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
 const RPC_URL = "https://soroban-testnet.stellar.org";
 
-// ── Design tokens (mirror CSS vars for inline styles) ─────────────────────────
 const C = {
   bg: "var(--bg)",
   bgCard: "var(--bg-card)",
@@ -32,8 +31,6 @@ const C = {
   purple: "var(--purple)",
   purpleDim: "var(--purple-dim)",
 };
-
-// ── Shared UI primitives ──────────────────────────────────────────────────────
 
 type Status = "idle" | "loading" | "ok" | "error";
 
@@ -292,8 +289,6 @@ function Label({
   );
 }
 
-// ── Pool Status ───────────────────────────────────────────────────────────────
-
 interface PoolStatus {
   poolAddress: string;
   queueDepth: number;
@@ -357,8 +352,6 @@ function PoolInfo() {
     </Card>
   );
 }
-
-// ── Freighter x402 Payment ────────────────────────────────────────────────────
 
 interface SettleResult {
   transaction: string;
@@ -532,8 +525,6 @@ function FreighterPayment() {
   );
 }
 
-// ── Pay Privately ─────────────────────────────────────────────────────────────
-
 interface QueueResult {
   status: string;
   queueDepth: number;
@@ -673,8 +664,6 @@ function PayPrivately() {
   );
 }
 
-// ── Fund Pool ─────────────────────────────────────────────────────────────────
-
 interface DepositResult {
   status: string;
   creditedUsdc: string;
@@ -736,7 +725,7 @@ function FundPool() {
 
   return (
     <Card title="Fund the Pool" label="deposit">
-      {/* Honest privacy note */}
+      {}
       <div
         style={{
           background: C.bgRaised,
@@ -816,7 +805,7 @@ function FundPool() {
         </div>
       </div>
 
-      {/* Step 1: send USDC */}
+      {}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <div
           style={{
@@ -903,10 +892,10 @@ function FundPool() {
         )}
       </div>
 
-      {/* Divider */}
+      {}
       <div style={{ borderTop: `1px solid ${C.borderDim}` }} />
 
-      {/* Step 2: claim deposit */}
+      {}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <div
           style={{
@@ -957,8 +946,6 @@ function FundPool() {
     </Card>
   );
 }
-
-// ── Balance Checker ───────────────────────────────────────────────────────────
 
 interface BalanceInfo {
   address: string;
@@ -1052,8 +1039,6 @@ function BalanceChecker() {
   );
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
-
 export function Pool() {
   return (
     <div
@@ -1066,7 +1051,7 @@ export function Pool() {
         gap: 32,
       }}
     >
-      {/* Header */}
+      {}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <Link
           to="/"

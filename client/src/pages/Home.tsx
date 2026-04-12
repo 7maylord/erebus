@@ -62,7 +62,7 @@ const privacyRows = [
 export function Home() {
   return (
     <div style={{ color: "var(--text)", fontFamily: "Inter, sans-serif" }}>
-      {/* ── Hero ── */}
+      {}
       <section
         style={{
           maxWidth: 860,
@@ -75,7 +75,7 @@ export function Home() {
           gap: 32,
         }}
       >
-        {/* glow blob */}
+        {}
         <div
           style={{
             position: "absolute",
@@ -189,7 +189,7 @@ export function Home() {
         </div>
       </section>
 
-      {/* ── Privacy comparison ── */}
+      {}
       <section
         style={{ maxWidth: 860, margin: "0 auto", padding: "0 24px 80px" }}
       >
@@ -274,7 +274,7 @@ export function Home() {
         </div>
       </section>
 
-      {/* ── Features ── */}
+      {}
       <section
         style={{ maxWidth: 860, margin: "0 auto", padding: "0 24px 80px" }}
       >
@@ -343,7 +343,7 @@ export function Home() {
         </div>
       </section>
 
-      {/* ── Flow ── */}
+      {}
       <section
         style={{ maxWidth: 860, margin: "0 auto", padding: "0 24px 80px" }}
       >
@@ -426,7 +426,7 @@ export function Home() {
         </div>
       </section>
 
-      {/* ── Stack ── */}
+      {}
       <section
         style={{ maxWidth: 860, margin: "0 auto", padding: "0 24px 120px" }}
       >

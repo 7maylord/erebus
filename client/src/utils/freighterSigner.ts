@@ -1,11 +1,3 @@
-/**
- * Wraps Freighter browser extension into the ClientStellarSigner interface
- * expected by @x402/stellar ExactStellarScheme.
- *
- * Interface required:
- *   { address: string, signAuthEntry: SignAuthEntry } (from @stellar/stellar-sdk/contract)
- */
-
 import {
   getAddress,
   signAuthEntry,
