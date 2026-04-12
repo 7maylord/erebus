@@ -19,6 +19,7 @@
     "cors": "^2.8.6",
     "dotenv": "^16.6.1",
     "express": "^4.22.1",
+    "mongoose": "^9.4.1",
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {

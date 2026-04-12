@@ -14,6 +14,7 @@
 
 import "dotenv/config";
 
+import mongoose, { Schema, model } from "mongoose";
 import express, { Request, Response } from "express";
 import cors from "cors";
 import bodyParser from "body-parser";
@@ -68,31 +69,74 @@ const poolKeypair = Keypair.fromSecret(POOL_STELLAR_SECRET);
 const rpc = new StellarRpc.Server(STELLAR_RPC_URL);
 const usdcContract = new Contract(USDC_CONTRACT);
 
-// ── Balance ledger ────────────────────────────────────────────────────────────
-// Tracks how much USDC each agent has contributed to the pool (in stroops).
-// An agent can only queue payouts up to their credited balance.
-// Key: Stellar public key (G...)  Value: balance in stroops (bigint)
+// ── MongoDB ledger ────────────────────────────────────────────────────────────
+// Balances and processed deposits persisted in MongoDB so restarts are safe.
 
+const BalanceDoc = model(
+  "Balance",
+  new Schema({ address: { type: String, required: true, unique: true }, stroops: { type: String, default: "0" } }),
+);
+const DepositDoc = model(
+  "Deposit",
+  new Schema({ txHash: { type: String, required: true, unique: true } }),
+);
+
+// In-memory mirrors — kept in sync with DB, used for fast synchronous reads
 const agentBalances = new Map<string, bigint>();
-// Track which deposit tx hashes we've already credited (prevent replay)
 const processedDeposits = new Set<string>();
+
+async function connectDB() {
+  const uri = process.env.MONGODB_URI;
+  if (!uri) {
+    console.error("Missing MONGODB_URI env var");
+    process.exit(1);
+  }
+  await mongoose.connect(uri, { dbName: "erebus" });
+  // Load existing data into memory
+  const balances = await BalanceDoc.find();
+  for (const b of balances) agentBalances.set(b.address, BigInt(b.stroops));
+  const deposits = await DepositDoc.find();
+  for (const d of deposits) processedDeposits.add(d.txHash);
+  console.log(
+    `[ledger] MongoDB connected — ${agentBalances.size} balance(s), ${processedDeposits.size} deposit(s) loaded`,
+  );
+}
 
 function getBalance(address: string): bigint {
   return agentBalances.get(address) ?? 0n;
 }
 
 function creditBalance(address: string, amountStroops: bigint): void {
-  agentBalances.set(address, getBalance(address) + amountStroops);
+  const newBal = getBalance(address) + amountStroops;
+  agentBalances.set(address, newBal);
+  BalanceDoc.findOneAndUpdate(
+    { address },
+    { stroops: newBal.toString() },
+    { upsert: true },
+  ).catch((e) => console.error("[ledger] creditBalance DB error:", e));
   console.log(
-    `[ledger] Credited ${amountStroops} stroops to ${address} — new balance: ${getBalance(address)}`,
+    `[ledger] Credited ${amountStroops} stroops to ${address} — new balance: ${newBal}`,
   );
 }
 
 function deductBalance(address: string, amountStroops: bigint): void {
-  agentBalances.set(address, getBalance(address) - amountStroops);
+  const newBal = getBalance(address) - amountStroops;
+  agentBalances.set(address, newBal);
+  BalanceDoc.findOneAndUpdate(
+    { address },
+    { stroops: newBal.toString() },
+    { upsert: true },
+  ).catch((e) => console.error("[ledger] deductBalance DB error:", e));
   console.log(
-    `[ledger] Deducted ${amountStroops} stroops from ${address} — new balance: ${getBalance(address)}`,
+    `[ledger] Deducted ${amountStroops} stroops from ${address} — new balance: ${newBal}`,
   );
+}
+
+function markDepositProcessed(txHash: string): void {
+  processedDeposits.add(txHash);
+  new DepositDoc({ txHash })
+    .save()
+    .catch((e) => console.error("[ledger] markDeposit DB error:", e));
 }
 
 // ── x402 facilitator client ───────────────────────────────────────────────────
@@ -316,7 +360,7 @@ app.post("/deposit", async (req: Request, res: Response) => {
     const netStroops = creditedStroops - feeStroops;
 
     // Mark deposit as processed and credit balance
-    processedDeposits.add(txHash);
+    markDepositProcessed(txHash);
     creditBalance(agentAddress, netStroops);
 
     console.log(
@@ -647,7 +691,7 @@ function startDepositWatcher() {
           const feeStroops = (depositedStroops * 50n) / 10_000n;
           const netStroops = depositedStroops - feeStroops;
 
-          processedDeposits.add(op.transaction_hash);
+          markDepositProcessed(op.transaction_hash);
           creditBalance(op.from, netStroops);
 
           console.log(
@@ -671,9 +715,9 @@ function startDepositWatcher() {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
-startDepositWatcher();
-
-app.listen(PORT, () => {
+connectDB().then(() => {
+  startDepositWatcher();
+  app.listen(PORT, () => {
   console.log(`✅ Erebus Privacy Pool running`);
   console.log(`   Pool address   : ${poolKeypair.publicKey()}`);
   console.log(`   USDC contract  : ${USDC_CONTRACT}`);
@@ -695,4 +739,8 @@ app.listen(PORT, () => {
   );
   console.log("  GET  /pool-status         – queue depth & stats");
   console.log("  GET  /failures/:address   – failed payouts (all refunded)");
+  });
+}).catch((err) => {
+  console.error("Failed to connect to MongoDB:", err);
+  process.exit(1);
 });
