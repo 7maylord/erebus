@@ -609,33 +609,31 @@ async function processBatch(): Promise<void> {
   const batch = paymentQueue.splice(0, paymentQueue.length);
   console.log(`[batch] Processing ${batch.length} payment(s)…`);
 
-  await Promise.allSettled(
-    batch.map(async (intent) => {
-      try {
-        const hash = await sendPoolPayment(intent);
-        console.log(
-          `[batch] ✅ Sent ${intent.amountStroops} stroops → ${intent.payeeAddress} | tx: ${hash}`,
-        );
-      } catch (err) {
-        const reason = err instanceof Error ? err.message : String(err);
-        console.error(`[batch] ❌ Failed: ${intent.payeeAddress} — ${reason}`);
+  for (const intent of batch) {
+    try {
+      const hash = await sendPoolPayment(intent);
+      console.log(
+        `[batch] ✅ Sent ${intent.amountStroops} stroops → ${intent.payeeAddress} | tx: ${hash}`,
+      );
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.error(`[batch] ❌ Failed: ${intent.payeeAddress} — ${reason}`);
 
-        // Refund the agent's balance so they are not out of pocket
-        creditBalance(intent.agentAddress, BigInt(intent.amountStroops));
-        console.log(
-          `[batch] ↩ Refunded ${intent.amountStroops} stroops to ${intent.agentAddress}`,
-        );
+      // Refund the agent's balance so they are not out of pocket
+      creditBalance(intent.agentAddress, BigInt(intent.amountStroops));
+      console.log(
+        `[batch] ↩ Refunded ${intent.amountStroops} stroops to ${intent.agentAddress}`,
+      );
 
-        // Log for agent to inspect via GET /failures/:address
-        failedPayments.push({
-          intent,
-          reason,
-          failedAt: Date.now(),
-          refunded: true,
-        });
-      }
-    }),
-  );
+      // Log for agent to inspect via GET /failures/:address
+      failedPayments.push({
+        intent,
+        reason,
+        failedAt: Date.now(),
+        refunded: true,
+      });
+    }
+  }
 }
 
 setInterval(() => {
