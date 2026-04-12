@@ -111,8 +111,8 @@ function creditBalance(address: string, amountStroops: bigint): void {
   agentBalances.set(address, newBal);
   BalanceDoc.findOneAndUpdate(
     { address },
-    { stroops: newBal.toString() },
-    { upsert: true },
+    { $set: { stroops: newBal.toString() } },
+    { upsert: true, returnDocument: "after" },
   ).catch((e) => console.error("[ledger] creditBalance DB error:", e));
   console.log(
     `[ledger] Credited ${amountStroops} stroops to ${address} — new balance: ${newBal}`,
@@ -124,8 +124,8 @@ function deductBalance(address: string, amountStroops: bigint): void {
   agentBalances.set(address, newBal);
   BalanceDoc.findOneAndUpdate(
     { address },
-    { stroops: newBal.toString() },
-    { upsert: true },
+    { $set: { stroops: newBal.toString() } },
+    { upsert: true, returnDocument: "after" },
   ).catch((e) => console.error("[ledger] deductBalance DB error:", e));
   console.log(
     `[ledger] Deducted ${amountStroops} stroops from ${address} — new balance: ${newBal}`,
@@ -134,9 +134,11 @@ function deductBalance(address: string, amountStroops: bigint): void {
 
 function markDepositProcessed(txHash: string): void {
   processedDeposits.add(txHash);
-  new DepositDoc({ txHash })
-    .save()
-    .catch((e) => console.error("[ledger] markDeposit DB error:", e));
+  DepositDoc.findOneAndUpdate(
+    { txHash },
+    { $set: { txHash } },
+    { upsert: true, returnDocument: "after" },
+  ).catch((e) => console.error("[ledger] markDeposit DB error:", e));
 }
 
 // ── x402 facilitator client ───────────────────────────────────────────────────
