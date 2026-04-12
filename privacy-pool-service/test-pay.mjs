@@ -141,14 +141,14 @@ console.log(`  Agents       : ${status.agentCount} credited`);
 
 // ── Step 2: 3× x402 micropayments ────────────────────────────────────────────
 
-separator("Step 2 / 6 — 3× x402 Micropayments ($0.01 USDC each)");
+separator("Step 2 / 6 — 1× x402 Micropayment ($0.01 USDC)");
 console.log(
   dim("  Each payment: Freighter signs auth entry → pool settles on-chain\n"),
 );
 
 const settlements = [];
-for (let i = 1; i <= 3; i++) {
-  process.stdout.write(`  Payment ${i}/3 … `);
+for (let i = 1; i <= 1; i++) {
+  process.stdout.write(`  Payment ${i}/1 … `);
   const t0 = Date.now();
   const res = await payFetch(`${SERVER_URL}/protected-data`);
   if (!res.ok) {
