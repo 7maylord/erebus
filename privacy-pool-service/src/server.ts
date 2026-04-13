@@ -163,7 +163,7 @@ app.use((req, _res, next) => {
   if (req.path === "/protected-data" && req.method === "GET") {
     const origSetHeader = _res.setHeader.bind(_res);
 
-    (_res as any).setHeader = (name: string, value: unknown) => {
+    (_res as unknown as Record<string, unknown>).setHeader = (name: string, value: unknown) => {
       if (name === "PAYMENT-RESPONSE" && typeof value === "string") {
         try {
           const settlement = JSON.parse(
@@ -182,7 +182,7 @@ app.use((req, _res, next) => {
             );
           }
         } catch {
-          
+          // Ignore malformed PAYMENT-RESPONSE headers
         }
       }
       return origSetHeader(name, value as string);
