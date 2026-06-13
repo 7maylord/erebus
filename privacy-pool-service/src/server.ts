@@ -59,9 +59,14 @@ const DepositDoc = model(
   "Deposit",
   new Schema({ txHash: { type: String, required: true, unique: true } }),
 );
+const NonceDoc = model(
+  "Nonce",
+  new Schema({ nonce: { type: String, required: true, unique: true } }),
+);
 
 const agentBalances = new Map<string, bigint>();
 const processedDeposits = new Set<string>();
+const processedNonces = new Set<string>();
 
 async function connectDB() {
   const uri = process.env.MONGODB_URI;
@@ -75,8 +80,10 @@ async function connectDB() {
   for (const b of balances) agentBalances.set(b.address, BigInt(b.stroops));
   const deposits = await DepositDoc.find();
   for (const d of deposits) processedDeposits.add(d.txHash);
+  const nonces = await NonceDoc.find();
+  for (const n of nonces) processedNonces.add(n.nonce);
   console.log(
-    `[ledger] MongoDB connected — ${agentBalances.size} balance(s), ${processedDeposits.size} deposit(s) loaded`,
+    `[ledger] MongoDB connected — ${agentBalances.size} balance(s), ${processedDeposits.size} deposit(s), ${processedNonces.size} nonce(s) loaded`,
   );
 }
 
@@ -84,39 +91,47 @@ function getBalance(address: string): bigint {
   return agentBalances.get(address) ?? 0n;
 }
 
-function creditBalance(address: string, amountStroops: bigint): void {
+// Parses a Stellar amount string (e.g. "12.3456789") to stroops without
+// floating-point precision loss.
+function stroopsFromAmount(amount: string): bigint {
+  const [whole, frac = ""] = amount.split(".");
+  const fracPadded = frac.padEnd(7, "0").slice(0, 7);
+  return BigInt(whole) * 10_000_000n + BigInt(fracPadded);
+}
+
+async function creditBalance(address: string, amountStroops: bigint): Promise<void> {
   const newBal = getBalance(address) + amountStroops;
   agentBalances.set(address, newBal);
-  BalanceDoc.findOneAndUpdate(
+  await BalanceDoc.findOneAndUpdate(
     { address },
     { $set: { stroops: newBal.toString() } },
     { upsert: true, returnDocument: "after" },
-  ).catch((e) => console.error("[ledger] creditBalance DB error:", e));
+  );
   console.log(
     `[ledger] Credited ${amountStroops} stroops to ${address} — new balance: ${newBal}`,
   );
 }
 
-function deductBalance(address: string, amountStroops: bigint): void {
+async function deductBalance(address: string, amountStroops: bigint): Promise<void> {
   const newBal = getBalance(address) - amountStroops;
   agentBalances.set(address, newBal);
-  BalanceDoc.findOneAndUpdate(
+  await BalanceDoc.findOneAndUpdate(
     { address },
     { $set: { stroops: newBal.toString() } },
     { upsert: true, returnDocument: "after" },
-  ).catch((e) => console.error("[ledger] deductBalance DB error:", e));
+  );
   console.log(
     `[ledger] Deducted ${amountStroops} stroops from ${address} — new balance: ${newBal}`,
   );
 }
 
-function markDepositProcessed(txHash: string): void {
+async function markDepositProcessed(txHash: string): Promise<void> {
   processedDeposits.add(txHash);
-  DepositDoc.findOneAndUpdate(
+  await DepositDoc.findOneAndUpdate(
     { txHash },
     { $set: { txHash } },
     { upsert: true, returnDocument: "after" },
-  ).catch((e) => console.error("[ledger] markDeposit DB error:", e));
+  );
 }
 
 const facilitatorClient = new HTTPFacilitatorClient({
@@ -176,7 +191,9 @@ app.use((req, _res, next) => {
           if (settlement.payer) {
 
             const x402AmountStroops = 100_000n;
-            creditBalance(settlement.payer, x402AmountStroops);
+            void creditBalance(settlement.payer, x402AmountStroops).catch((e) =>
+              console.error("[x402] creditBalance DB error:", e),
+            );
             console.log(
               `[x402] Auto-credited ${settlement.payer} from tx ${settlement.transaction}`,
             );
@@ -251,11 +268,16 @@ app.post("/deposit", async (req: Request, res: Response) => {
     return;
   }
 
+  // Claim the txHash synchronously before the first await so concurrent
+  // requests for the same hash are rejected while this one is in-flight.
+  processedDeposits.add(txHash);
+
   try {
 
     const txUrl = `${HORIZON_URL}/transactions/${txHash}`;
     const txResp = await fetch(txUrl);
     if (!txResp.ok) {
+      processedDeposits.delete(txHash);
       res
         .status(404)
         .json({ error: "Transaction not found on Horizon — is it confirmed?" });
@@ -264,6 +286,7 @@ app.post("/deposit", async (req: Request, res: Response) => {
 
     const tx = (await txResp.json()) as { successful: boolean };
     if (!tx.successful) {
+      processedDeposits.delete(txHash);
       res.status(400).json({ error: "Transaction is not successful on-chain" });
       return;
     }
@@ -297,11 +320,12 @@ app.post("/deposit", async (req: Request, res: Response) => {
         op.amount
       ) {
 
-        creditedStroops += BigInt(Math.round(parseFloat(op.amount) * 1e7));
+        creditedStroops += stroopsFromAmount(op.amount);
       }
     }
 
     if (creditedStroops === 0n) {
+      processedDeposits.delete(txHash);
       res.status(400).json({
         error: "No USDC payment to the pool found in this transaction",
         poolAddress: poolKeypair.publicKey(),
@@ -313,8 +337,8 @@ app.post("/deposit", async (req: Request, res: Response) => {
     const feeStroops = (creditedStroops * FEE_BPS) / 10_000n;
     const netStroops = creditedStroops - feeStroops;
 
-    markDepositProcessed(txHash);
-    creditBalance(agentAddress, netStroops);
+    await markDepositProcessed(txHash);
+    await creditBalance(agentAddress, netStroops);
 
     console.log(
       `[deposit] ${agentAddress} deposited ${creditedStroops} stroops — fee ${feeStroops} stroops (0.5%) — credited ${netStroops} stroops`,
@@ -333,6 +357,7 @@ app.post("/deposit", async (req: Request, res: Response) => {
       newBalanceUsdc: (Number(getBalance(agentAddress)) / 1e7).toFixed(7),
     });
   } catch (err) {
+    processedDeposits.delete(txHash);
     console.error("[deposit] Error:", err);
     res.status(500).json({ error: "Failed to verify transaction" });
   }
@@ -360,7 +385,7 @@ app.get("/protected-data", (_req, res) => {
   });
 });
 
-app.post("/pay-privately", (req: Request, res: Response) => {
+app.post("/pay-privately", async (req: Request, res: Response) => {
   const { agentAddress, intent, signature } = req.body as {
     agentAddress: string;
     intent: Omit<PaymentIntent, "queuedAt" | "agentAddress">;
@@ -400,12 +425,18 @@ app.post("/pay-privately", (req: Request, res: Response) => {
     return;
   }
 
-  if (paymentQueue.some((p) => p.nonce === intent.nonce)) {
+  if (processedNonces.has(intent.nonce)) {
     res.status(409).json({ error: "Duplicate nonce" });
     return;
   }
 
-  const amountStroops = BigInt(intent.amountStroops);
+  let amountStroops: bigint;
+  try {
+    amountStroops = BigInt(intent.amountStroops);
+  } catch {
+    res.status(400).json({ error: "Invalid amountStroops: must be a whole-number string" });
+    return;
+  }
   const balance = getBalance(agentAddress);
 
   if (balance < amountStroops) {
@@ -420,9 +451,27 @@ app.post("/pay-privately", (req: Request, res: Response) => {
     return;
   }
 
-  deductBalance(agentAddress, amountStroops);
+  // Claim nonce synchronously before the async deductBalance so a concurrent
+  // request with the same nonce is rejected during the await gap.
+  processedNonces.add(intent.nonce);
+
+  try {
+    await deductBalance(agentAddress, amountStroops);
+  } catch (err) {
+    processedNonces.delete(intent.nonce);
+    console.error("[pay-privately] deductBalance failed:", err);
+    res.status(500).json({ error: "Failed to process payment" });
+    return;
+  }
 
   paymentQueue.push({ agentAddress, ...intent, queuedAt: Date.now() });
+
+  // Persist nonce so it survives restarts and cannot be replayed across batches.
+  NonceDoc.findOneAndUpdate(
+    { nonce: intent.nonce },
+    { $set: { nonce: intent.nonce } },
+    { upsert: true },
+  ).catch((e) => console.error("[nonce] persist error:", e));
 
   res.json({
     status: "queued",
@@ -538,7 +587,7 @@ async function processBatch(): Promise<void> {
       const reason = err instanceof Error ? err.message : String(err);
       console.error(`[batch] ❌ Failed: ${intent.payeeAddress} — ${reason}`);
 
-      creditBalance(intent.agentAddress, BigInt(intent.amountStroops));
+      await creditBalance(intent.agentAddress, BigInt(intent.amountStroops));
       console.log(
         `[batch] ↩ Refunded ${intent.amountStroops} stroops to ${intent.agentAddress}`,
       );
@@ -597,14 +646,18 @@ function startDepositWatcher() {
             return;
           }
 
-          const depositedStroops = BigInt(
-            Math.round(parseFloat(op.amount) * 1e7),
-          );
+          const depositedStroops = stroopsFromAmount(op.amount);
           const feeStroops = (depositedStroops * 50n) / 10_000n;
           const netStroops = depositedStroops - feeStroops;
 
-          markDepositProcessed(op.transaction_hash);
-          creditBalance(op.from, netStroops);
+          // markDepositProcessed adds to processedDeposits synchronously
+          // (before its first await), so the duplicate check above is safe.
+          markDepositProcessed(op.transaction_hash).catch((e) =>
+            console.error("[watcher] markDeposit DB error:", e),
+          );
+          creditBalance(op.from, netStroops).catch((e) =>
+            console.error("[watcher] creditBalance DB error:", e),
+          );
 
           console.log(
             `[watcher] ✅ Auto-credited ${op.from} — deposited ${op.amount} USDC — fee ${(Number(feeStroops) / 1e7).toFixed(7)} USDC — net ${(Number(netStroops) / 1e7).toFixed(7)} USDC | tx: ${op.transaction_hash}`,
