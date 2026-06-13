@@ -7,6 +7,7 @@ import bodyParser from "body-parser";
 import nacl from "tweetnacl";
 import {
   Keypair,
+  StrKey,
   Contract,
   TransactionBuilder,
   Networks,
@@ -18,6 +19,7 @@ import {
 import { paymentMiddleware, x402ResourceServer } from "@x402/express";
 import { ExactStellarScheme } from "@x402/stellar/exact/server";
 import { HTTPFacilitatorClient } from "@x402/core/server";
+import rateLimit from "express-rate-limit";
 
 function requireEnv(name: string): string {
   const val = process.env[name];
@@ -41,11 +43,18 @@ const USDC_CONTRACT = requireEnv("USDC_CONTRACT");
 const FACILITATOR_URL = requireEnv("FACILITATOR_URL");
 const RELAYER_API_KEY = requireEnv("RELAYER_API_KEY");
 const POOL_STELLAR_SECRET = requireEnv("POOL_STELLAR_SECRET");
-const BATCH_INTERVAL_MS =
-  Number(process.env.BATCH_INTERVAL_SECONDS || "30") * 1000;
+const BATCH_INTERVAL_MS = Math.max(
+  5_000,
+  Number(process.env.BATCH_INTERVAL_SECONDS || "30") * 1000,
+);
 
 const NETWORK_PASSPHRASE =
   STELLAR_NETWORK === "testnet" ? Networks.TESTNET : Networks.PUBLIC;
+
+// Single source of truth for the x402 price — used in both the middleware
+// config and the auto-credit calculation so they cannot drift apart.
+const X402_PRICE_USDC = "0.01";
+const X402_PRICE_STROOPS = BigInt(Math.round(parseFloat(X402_PRICE_USDC) * 1e7));
 
 const poolKeypair = Keypair.fromSecret(POOL_STELLAR_SECRET);
 const rpc = new StellarRpc.Server(STELLAR_RPC_URL);
@@ -190,8 +199,7 @@ app.use((req, _res, next) => {
           };
           if (settlement.payer) {
 
-            const x402AmountStroops = 100_000n;
-            void creditBalance(settlement.payer, x402AmountStroops).catch((e) =>
+            void creditBalance(settlement.payer, X402_PRICE_STROOPS).catch((e) =>
               console.error("[x402] creditBalance DB error:", e),
             );
             console.log(
@@ -215,7 +223,7 @@ app.use(
         accepts: [
           {
             scheme: "exact",
-            price: "$0.01",
+            price: `$${X402_PRICE_USDC}`,
             network: STELLAR_NETWORK_CAIP2,
             payTo: poolKeypair.publicKey(),
           },
@@ -227,6 +235,14 @@ app.use(
     resourceServer,
   ),
 );
+
+const mutationLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later." },
+});
 
 app.get("/", (_req, res) => {
   res.json({
@@ -250,7 +266,7 @@ app.get("/fund-pool", (_req, res) => {
   });
 });
 
-app.post("/deposit", async (req: Request, res: Response) => {
+app.post("/deposit", mutationLimiter, async (req: Request, res: Response) => {
   const { agentAddress, txHash } = req.body as {
     agentAddress?: string;
     txHash?: string;
@@ -299,9 +315,9 @@ app.post("/deposit", async (req: Request, res: Response) => {
           type: string;
           asset_code?: string;
           asset_issuer?: string;
+          from?: string;
           to?: string;
           amount?: string;
-
           function?: string;
         }>;
       };
@@ -310,17 +326,17 @@ app.post("/deposit", async (req: Request, res: Response) => {
     const ops = opsData._embedded.records;
 
     let creditedStroops = 0n;
+    const senders = new Set<string>();
 
     for (const op of ops) {
-
       if (
         op.type === "payment" &&
         op.asset_code === "USDC" &&
         op.to === poolKeypair.publicKey() &&
         op.amount
       ) {
-
         creditedStroops += stroopsFromAmount(op.amount);
+        if (op.from) senders.add(op.from);
       }
     }
 
@@ -329,6 +345,15 @@ app.post("/deposit", async (req: Request, res: Response) => {
       res.status(400).json({
         error: "No USDC payment to the pool found in this transaction",
         poolAddress: poolKeypair.publicKey(),
+      });
+      return;
+    }
+
+    if (!senders.has(agentAddress)) {
+      processedDeposits.delete(txHash);
+      res.status(403).json({
+        error: "agentAddress does not match the transaction sender",
+        senders: [...senders],
       });
       return;
     }
@@ -385,7 +410,7 @@ app.get("/protected-data", (_req, res) => {
   });
 });
 
-app.post("/pay-privately", async (req: Request, res: Response) => {
+app.post("/pay-privately", mutationLimiter, async (req: Request, res: Response) => {
   const { agentAddress, intent, signature } = req.body as {
     agentAddress: string;
     intent: Omit<PaymentIntent, "queuedAt" | "agentAddress">;
@@ -401,6 +426,11 @@ app.post("/pay-privately", async (req: Request, res: Response) => {
     !signature
   ) {
     res.status(400).json({ error: "Missing required fields" });
+    return;
+  }
+
+  if (!StrKey.isValidEd25519PublicKey(intent.payeeAddress)) {
+    res.status(400).json({ error: "Invalid payeeAddress: not a valid Stellar public key" });
     return;
   }
 
@@ -502,6 +532,7 @@ interface FailedPayment {
   refunded: boolean;
 }
 
+const MAX_FAILED_PAYMENTS = 1_000;
 const failedPayments: FailedPayment[] = [];
 
 app.get("/failures/:address", (req: Request, res: Response) => {
@@ -522,11 +553,23 @@ app.get("/failures/:address", (req: Request, res: Response) => {
   });
 });
 
+async function getRecommendedFee(): Promise<string> {
+  try {
+    const stats = await rpc.getFeeStats();
+    return stats.sorobanInclusionFee.p90;
+  } catch {
+    return BASE_FEE;
+  }
+}
+
 async function sendPoolPayment(intent: PaymentIntent): Promise<string> {
-  const account = await rpc.getAccount(poolKeypair.publicKey());
+  const [account, fee] = await Promise.all([
+    rpc.getAccount(poolKeypair.publicKey()),
+    getRecommendedFee(),
+  ]);
 
   const tx = new TransactionBuilder(account, {
-    fee: BASE_FEE,
+    fee,
     networkPassphrase: NETWORK_PASSPHRASE,
   })
     .addOperation(
@@ -592,6 +635,7 @@ async function processBatch(): Promise<void> {
         `[batch] ↩ Refunded ${intent.amountStroops} stroops to ${intent.agentAddress}`,
       );
 
+      if (failedPayments.length >= MAX_FAILED_PAYMENTS) failedPayments.shift();
       failedPayments.push({
         intent,
         reason,
